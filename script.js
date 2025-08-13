@@ -91,33 +91,148 @@ document.addEventListener('DOMContentLoaded', () => {
 // Contact Form Handling
 const contactForm = document.querySelector('.contact-form form');
 if (contactForm) {
-    contactForm.addEventListener('submit', function(e) {
+    // Create or get a status element for user feedback
+    let statusEl = document.querySelector('.form-status');
+    if (!statusEl) {
+        statusEl = document.createElement('div');
+        statusEl.className = 'form-status';
+        statusEl.style.marginBottom = '12px';
+        statusEl.style.fontSize = '0.95rem';
+        const formWrapper = document.querySelector('.contact-form');
+        formWrapper.insertBefore(statusEl, formWrapper.firstChild);
+    }
+
+    const setStatus = (text, type = 'info') => {
+        statusEl.textContent = text;
+        statusEl.style.color = type === 'error' ? '#dc2626' : type === 'success' ? '#059669' : '#374151';
+    };
+
+    const getFields = (form) => {
+        // Prefer by id/name if available, fallback to position
+        const nameInput = form.querySelector('#contact-name') || form.querySelector('input[type="text"]');
+        const emailInput = form.querySelector('#contact-email') || form.querySelector('input[type="email"]');
+        const subjectInput = form.querySelector('#contact-subject') || form.querySelectorAll('input[type="text"]')[1];
+        const messageInput = form.querySelector('#contact-message') || form.querySelector('textarea');
+        return { nameInput, emailInput, subjectInput, messageInput };
+    };
+
+    const validate = ({ nameInput, emailInput, subjectInput, messageInput }) => {
+        // Clear previous validity
+        [nameInput, emailInput, subjectInput, messageInput].forEach((el) => el && el.setCustomValidity(''));
+
+        const name = (nameInput?.value || '').trim();
+        const email = (emailInput?.value || '').trim();
+        const subject = (subjectInput?.value || '').trim();
+        const message = (messageInput?.value || '').trim();
+
+        let isValid = true;
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
+
+        if (!name || name.length < 2) {
+            nameInput.setCustomValidity('Please enter your name (at least 2 characters).');
+            isValid = false;
+        }
+        if (!email || !emailRegex.test(email)) {
+            emailInput.setCustomValidity('Please enter a valid email address.');
+            isValid = false;
+        }
+        if (!subject || subject.length < 3) {
+            subjectInput.setCustomValidity('Please enter a subject (at least 3 characters).');
+            isValid = false;
+        }
+        if (!message || message.length < 10) {
+            messageInput.setCustomValidity('Message should be at least 10 characters.');
+            isValid = false;
+        }
+
+        if (!isValid) {
+            // Report the first invalid field
+            const firstInvalid = [nameInput, emailInput, subjectInput, messageInput].find((el) => !el.checkValidity());
+            firstInvalid?.reportValidity();
+        }
+
+        return { isValid, name, email, subject, message };
+    };
+
+    const WEBHOOK_URL = 'http://localhost:5678/webhook-test/1b07d305-e20c-47f3-b18d-022dd1fc3389';
+
+    const fetchWithTimeout = (resource, options = {}) => {
+        const { timeout = 10000 } = options;
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeout);
+        return fetch(resource, { ...options, signal: controller.signal }).finally(() => clearTimeout(id));
+    };
+
+    contactForm.addEventListener('submit', async function (e) {
         e.preventDefault();
-        
-        // Get form data
-        const formData = new FormData(this);
-        const name = this.querySelector('input[type="text"]').value;
-        const email = this.querySelector('input[type="email"]').value;
-        const subject = this.querySelector('input[type="text"]:nth-of-type(2)').value || this.querySelectorAll('input[type="text"]')[1].value;
-        const message = this.querySelector('textarea').value;
-        
-        // Create mailto link
-        const mailtoLink = `mailto:fuadmostafij6@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(`Name: ${name}\nEmail: ${email}\n\nMessage:\n${message}`)}`;
-        
-        // Open email client
-        window.location.href = mailtoLink;
-        
-        // Show success message
+        setStatus('Sending...', 'info');
+
         const submitBtn = this.querySelector('.btn-primary');
         const originalText = submitBtn.textContent;
-        submitBtn.textContent = 'Message Sent!';
-        submitBtn.style.background = '#10b981';
-        
-        setTimeout(() => {
+        submitBtn.disabled = true;
+        submitBtn.style.opacity = '0.7';
+        submitBtn.textContent = 'Sending...';
+
+        const fields = getFields(this);
+        const { isValid, name, email, subject, message } = validate(fields);
+        if (!isValid) {
+            setStatus('Please fix the highlighted fields and try again.', 'error');
+            submitBtn.disabled = false;
+            submitBtn.style.opacity = '1';
             submitBtn.textContent = originalText;
-            submitBtn.style.background = '#2563eb';
+            return;
+        }
+
+        // Build FormData payload to minimize CORS preflight
+        const formData = new FormData();
+        formData.append('name', name);
+        formData.append('email', email);
+        formData.append('subject', subject);
+        formData.append('message', message);
+        formData.append('source', 'personal_portfolio');
+        formData.append('submittedAt', new Date().toISOString());
+        formData.append('pagePath', window.location.pathname);
+        formData.append('userAgent', navigator.userAgent);
+
+        try {
+            const response = await fetchWithTimeout(WEBHOOK_URL, {
+                method: 'POST',
+                body: formData,
+                timeout: 10000,
+            });
+
+            if (!response.ok) {
+                throw new Error(`Request failed with status ${response.status}`);
+            }
+
+            setStatus('Message sent successfully. Thank you!', 'success');
+            submitBtn.textContent = 'Message Sent!';
+            submitBtn.style.background = '#10b981';
             this.reset();
-        }, 3000);
+            // Clear custom validity after reset
+            const { nameInput, emailInput, subjectInput, messageInput } = fields;
+            [nameInput, emailInput, subjectInput, messageInput].forEach((el) => el && el.setCustomValidity(''));
+
+            setTimeout(() => {
+                submitBtn.textContent = originalText;
+                submitBtn.style.background = '#2563eb';
+                submitBtn.disabled = false;
+                submitBtn.style.opacity = '1';
+                setStatus('');
+            }, 2500);
+        } catch (err) {
+            console.error('Contact form submission failed:', err);
+            if (err.name === 'TypeError' && err.message.includes('Failed to fetch')) {
+                setStatus('Network error. Please check if n8n is running and try again.', 'error');
+            } else if (err.message.includes('404')) {
+                setStatus('Webhook not found. Please check if the n8n workflow is in test mode.', 'error');
+            } else {
+                setStatus('Failed to send. Please try again later or email me directly.', 'error');
+            }
+            submitBtn.disabled = false;
+            submitBtn.style.opacity = '1';
+            submitBtn.textContent = originalText;
+        }
     });
 }
 

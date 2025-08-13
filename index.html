@@ -432,18 +432,18 @@
                     </div>
                 </div>
                 <div class="contact-form">
-                    <form>
+                    <form novalidate>
                         <div class="form-group">
-                            <input type="text" placeholder="Your Name" required>
+                            <input id="contact-name" name="name" type="text" placeholder="Your Name" required minlength="2" autocomplete="name">
                         </div>
                         <div class="form-group">
-                            <input type="email" placeholder="Your Email" required>
+                            <input id="contact-email" name="email" type="email" placeholder="Your Email" required autocomplete="email">
                         </div>
                         <div class="form-group">
-                            <input type="text" placeholder="Subject" required>
+                            <input id="contact-subject" name="subject" type="text" placeholder="Subject" required minlength="3">
                         </div>
                         <div class="form-group">
-                            <textarea placeholder="Your Message" rows="5" required></textarea>
+                            <textarea id="contact-message" name="message" placeholder="Your Message" rows="5" required minlength="10"></textarea>
                         </div>
                         <button type="submit" class="btn btn-primary">Send Message</button>
                     </form>
